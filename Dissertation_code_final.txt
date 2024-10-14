@@ -1,0 +1,601 @@
+### Load necessary packages
+Sys.setenv(LANG = "en")
+setwd("C:/Users/kawin/Documents/Cardiff/Dissertation/Data")
+
+library(readxl)
+library(Rssa)
+library(lubridate)
+library(dplyr)
+library(lattice)
+library(ggplot2)
+library(tidyr)
+
+
+### 1. Read data
+
+humidity <- read_excel("humidity_2000.xlsx")
+humidity <- humidity[humidity$Date >= '2000-01-01' & humidity$Date <= '2019-12-31', ]
+humidity <- humidity[,c("Date","Value")]
+colnames(humidity) <- c("Date", "Humidity")
+
+temp <- read_excel("meantemp_2000.xlsx")
+temp <- temp[temp$Date >= '2000-01-01' & temp$Date <= '2019-12-31', ]
+temp <- temp[,c("Date","Value")]
+colnames(temp) <- c("Date", "Temperature")
+
+
+### 2. Data preprocessing
+
+# Merge the two datasets on the Date column
+climate_df <- merge(humidity, temp, by = "Date")
+
+# Convert dates to date format
+climate_df$Date <- as.Date(climate_df$Date)
+
+# Convert values to numeric
+climate_df$Humidity <- as.numeric(climate_df$Humidity)
+climate_df$Temperature <- as.numeric(climate_df$Temperature)
+
+# Only extract humidity and temperature values
+climate_data <- climate_df[, c("Humidity", "Temperature")]
+
+
+### 3. Preliminary analysis
+
+## Calculate overall statistics
+mean_humidity <- mean(climate_df$Humidity)
+mean_temperature <- mean(climate_df$Temperature)
+
+summary_humidity <- summary(climate_df$Humidity)
+summary_temperature <- summary(climate_df$Temperature)
+
+var_humidity <- var(climate_df$Humidity)
+var_temperature <- var(climate_df$Temperature)
+
+sd_humidity <- sd(climate_df$Humidity)
+sd_temperature <- sd(climate_df$Temperature)
+
+# Print overall statistics
+cat("Overall Statistics:\n")
+cat("Humidity Mean:", mean_humidity, "\n")
+cat("Humidity Five-Number Summary:\n", summary_humidity, "\n")
+cat("Humidity Variance:", var_humidity, "\n")
+cat("Humidity Standard Deviation:", sd_humidity, "\n\n")
+
+cat("Temperature Mean:", mean_temperature, "\n")
+cat("Temperature Five-Number Summary:\n", summary_temperature, "\n")
+cat("Temperature Variance:", var_temperature, "\n")
+cat("Temperature Standard Deviation:", sd_temperature, "\n\n")
+
+# Boxplot for Humidity
+ggplot(climate_df, aes(y = Humidity)) +
+    geom_boxplot(fill = "blue", color = "black") +
+    labs(title = "Boxplot of Humidity",
+         y = "Humidity (%)") +
+    theme_minimal()
+
+# Boxplot for Temperature
+ggplot(climate_df, aes(y = Temperature)) +
+    geom_boxplot(fill = "orange", color = "black") +
+    labs(title = "Boxplot of Temperature",
+         y = "Temperature (°C)") +
+    theme_minimal()
+
+## Calculate yearly averages
+climate_df$Year <- format(as.Date(climate_df$Date), "%Y")
+yearly_avg <- climate_df %>%
+  group_by(Year) %>%
+  summarize(Humidity = mean(Humidity), Temperature = mean(Temperature))
+
+# Print yearly averages
+cat("Yearly Averages:\n")
+print(yearly_avg)
+
+
+## Plot a line graph to visualize the annual mean of humidity and temperature
+ggplot(yearly_avg, aes(x = as.numeric(Year))) +
+  geom_line(aes(y = Humidity, color = "Humidity"), linewidth = 1) +
+  geom_line(aes(y = Temperature, color = "Temperature"), linewidth = 1) +
+  labs(title = "Annual Mean of Humidity and Temperature",
+       x = "Year",
+       y = "Value (%/℃)" )+
+  scale_color_manual(name = "", values = c("Humidity" = "blue", "Temperature" = "orange")) +
+  theme_minimal()
+
+## Monthly averages
+
+# Extract year and month from the Date column
+climate_df$Year <- year(climate_df$Date)
+climate_df$Month <- month(climate_df$Date)
+
+# Calculate the monthly mean for each month in every year
+monthly_mean <- climate_df %>%
+  group_by(Year, Month) %>%
+  summarize(
+    Monthly_Humidity_Mean = mean(Humidity, na.rm = TRUE),
+    Monthly_Temperature_Mean = mean(Temperature, na.rm = TRUE)
+  )
+
+cat("Monthly Mean for Each Month in Every Year:\n")
+print(monthly_mean)
+
+# Calculate the overall average for each month across all years
+overall_monthly_mean <- climate_df %>%
+  group_by(Month) %>%
+  summarize(
+    Overall_Monthly_Humidity_Mean = mean(Humidity, na.rm = TRUE),
+    Overall_Monthly_Temperature_Mean = mean(Temperature, na.rm = TRUE)
+  )
+
+cat("Overall Average for Each Month Across All Years:\n")
+print(overall_monthly_mean)
+
+
+# Create a Date column by combining Year and Month
+monthly_mean$Date <- as.Date(paste(monthly_mean$Year, monthly_mean$Month, "01", sep = "-"))
+
+# Plot the Humidity series
+ggplot(monthly_mean, aes(x = Date, y = Monthly_Humidity_Mean)) +
+  geom_line(color = "blue") +
+  geom_point(color = "blue") +
+  geom_smooth(method = "lm", color = "red", se = FALSE) +
+  labs(title = "Monthly Mean Humidity Over Time",
+       x = "Date",
+       y = "Humidity (%)") +
+  theme_minimal()
+
+# Plot the Temperature series
+ggplot(monthly_mean, aes(x = Date, y = Monthly_Temperature_Mean)) +
+  geom_line(color = "orange") +
+  geom_point(color = "orange") +
+  geom_smooth(method = "lm", color = "red", se = FALSE) +
+  labs(title = "Monthly Mean Temperature Over Time",
+       x = "Date",
+       y = "Temperature (°C)") +
+  theme_minimal()
+
+
+# Plot overall mean
+ggplot(overall_monthly_mean, aes(x = Month)) +
+    geom_line(aes(y = Overall_Monthly_Humidity_Mean, color = "Humidity"), linewidth = 1, group = 1) +
+    geom_line(aes(y = Overall_Monthly_Temperature_Mean, color = "Temperature"), linewidth = 1, group = 1) +
+    labs(title = "Overall Monthly Average Humidity and Temperature Across All Years",
+         x = "Month",
+         y = "Mean Value") +
+    scale_color_manual(name = "Parameter", values = c("Humidity" = "blue", "Temperature" = "orange")) +
+    scale_x_continuous(breaks = 1:12, labels = month.abb) +  
+    theme_minimal()
+
+
+## Extreme values
+
+# Count the number of days with humidity value higher than 90
+count_humidity_90 <- sum(climate_data$Humidity >= 90)
+total_days <- nrow(climate_data)
+
+# Calculate the percentage of days with humidity value higher than 90
+percentage_humidity_90 <- (count_humidity_90 / total_days) * 100
+
+print(percentage_humidity_90)
+
+
+## Correlation
+
+correlation <- cor(climate_data$Humidity, climate_data$Temperature)
+
+print(paste("Correlation between Humidity and Temperature:", correlation))
+
+# Plot the scatter plot
+par(mar = c(5, 5, 4, 4))
+plot(climate_data$Humidity, climate_data$Temperature,
+     main = "Scatter Plot of Humidity vs Temperature",
+     xlab = "Humidity",
+     ylab = "Temperature",
+     pch = 19, col = "blue")
+
+# Add a trendline to the scatter plot
+abline(lm(Temperature ~ Humidity, data = climate_data), col = "red")
+
+
+### 4. SSA - Reconstruction
+
+L <- 365*2
+s.climate <- ssa(climate_data, L=L, kind='mssa')
+plot(s.climate)  # Plotting singular values to inspect them
+
+# Reconstruction
+r.climate <- reconstruct(s.climate, groups = list(Seasonality = 1:20, Noise = 21:50))
+
+combined_data <- data.frame(
+     Date = climate_df$Date,  # Use the Date column from the original data
+     Original_Humidity = attr(r.climate, "series")$Humidity,
+     Seasonality_Humidity = r.climate$Seasonality$Humidity,
+     Noise_Humidity = r.climate$Noise$Humidity,
+     Original_Temp = attr(r.climate, "series")$Temperature,
+     Seasonality_Temp = r.climate$Seasonality$Temperature,
+     Noise_Temp = r.climate$Noise$Temperature
+)
+
+par(mar = c(5, 4, 4, 10), xpd = TRUE)
+
+# Create the plot
+matplot(combined_data$Date, 
+        cbind(combined_data$Original_Humidity, 
+              combined_data$Seasonality_Humidity,
+              combined_data$Noise_Humidity,
+              combined_data$Original_Temp, 
+              combined_data$Seasonality_Temp,
+              combined_data$Noise_Temp), 
+        type = "l", lty = 1, col = c("blue", "green", "orange", "purple", "red", "brown"),
+        xlab = "Date", ylab = "Value", main = "Reconstructed Series with Date")
+
+legend("topright", inset = c(-0.78, 0),  
+       legend = c("Original Humidity", "Seasonality Humidity", "Noise Humidity",
+                  "Original Temperature", "Seasonality Temperature", "Noise Temperature"),
+       col = c("blue", "green", "orange", "purple", "red", "brown"), lty = 1, cex = 0.8)
+
+
+
+### SSA - Identification
+
+# Identification
+
+# Eigenvectors
+plot(s.climate, type = "vectors", idx = 1:50, main = "Eigenvectors")
+plot(s.climate, type = "paired", idx = 2:49, plot.contrib = FALSE)
+
+# Period estimation
+parestimation <- parestimate(s.climate, groups = list(2:3, 8:9, 19:20, 22:23, 26:27, 32:33, 34:35), 
+                            method = "esprit")
+print(parestimation)
+
+# W-correlation matrix
+wcor_matrix <- wcor(s.climate, groups = 1:50)
+plot(wcor_matrix, main = "W-Correlation Matrix")
+
+
+
+### SSA - Final
+
+s_final.climate <- ssa(climate_data, L=365*10, kind='mssa')
+
+plot(s_final.climate)
+plot(s_final.climate, type = "vectors", idx = 1:50, main = "Eigenvectors")
+plot(s_final.climate, type = "paired", idx = 2:49, plot.contrib = FALSE)
+parestimation_final <- parestimate(s_final.climate, groups = list(2:3, 4:5, 14:15, 16:17, 21:22, 30:31), 
+                            method = "esprit")
+print(parestimation_final)
+wcor_matrix_final <- wcor(s_final.climate, groups = 1:50)
+plot(wcor_matrix_final, main = "W-Correlation Matrix")
+
+
+groups <- list(
+  Trend = 1,  
+  Seasonality1 = 2:16,  
+  Seasonality2 = 17:24, 
+  Seasonality3 = 25:27,   
+  Noise = 28:50 
+)
+
+r_final.climate <- reconstruct(s_final.climate, groups = groups)
+
+combined_data_final <- data.frame(
+     Date = climate_df$Date,  # Use the Date column from the original data
+     Original_Humidity = attr(r_final.climate, "series")$Humidity,
+     Trend_Humidity = r_final.climate$Trend$Humidity,
+     Seasonality1_Humidity = r_final.climate$Seasonality1$Humidity,
+     Seasonality2_Humidity = r_final.climate$Seasonality2$Humidity,
+     Seasonality3_Humidity = r_final.climate$Seasonality3$Humidity,
+     Noise_Humidity = r_final.climate$Noise$Humidity,
+     Original_Temp = attr(r_final.climate, "series")$Temperature,
+     Trend_Temp = r_final.climate$Trend$Temperature,
+     Seasonality1_Temp = r_final.climate$Seasonality1$Temperature,
+     Seasonality2_Temp = r_final.climate$Seasonality2$Temperature,
+     Seasonality3_Temp = r_final.climate$Seasonality3$Temperature,
+     Noise_Temp = r_final.climate$Noise$Temperature
+)
+
+
+## Humidity decomposition
+
+par(mfrow = c(3, 1), mar = c(5, 5, 2, 12), xpd = TRUE)
+
+# Original Humidity vs. Trend Component
+plot(combined_data_final$Date, combined_data_final$Original_Humidity, type = "l", col = "blue",
+     xlab = "Date", ylab = "Humidity", 
+     ylim = range(combined_data_final$Original_Humidity, combined_data_final$Trend_Humidity),
+     main = "Original vs. Reconstructed Trend Component (Humidity)")
+lines(combined_data_final$Date, combined_data_final$Trend_Humidity, col = "red")
+legend("topright", inset = c(-0.44, 0), 
+       legend = c("Original Humidity", "Trend"), col = c("blue", "red"), lty = 1)
+
+# Original Humidity vs. Seasonality Components
+plot(combined_data_final$Date, combined_data_final$Original_Humidity, type = "l", col = "blue",
+     xlab = "Date", ylab = "Humidity", 
+     ylim = range(combined_data_final$Original_Humidity, combined_data_final$Seasonality1_Humidity,
+                  combined_data_final$Seasonality2_Humidity, combined_data_final$Seasonality3_Humidity),
+     main = "Original vs. Reconstructed Seasonality Components (Humidity)")
+lines(combined_data_final$Date, combined_data_final$Seasonality1_Humidity, col = "green")
+lines(combined_data_final$Date, combined_data_final$Seasonality2_Humidity, col = "orange")
+lines(combined_data_final$Date, combined_data_final$Seasonality3_Humidity, col = "purple")
+legend("topright", inset = c(-0.44, 0), 
+       legend = c("Original Humidity", "Seasonality1", "Seasonality2", "Seasonality3"), 
+       col = c("blue", "green", "orange", "purple"), lty = 1)
+
+# Original Humidity vs. Noise Component
+plot(combined_data_final$Date, combined_data_final$Original_Humidity, type = "l", col = "blue",
+     xlab = "Date", ylab = "Humidity", 
+     ylim = range(combined_data_final$Original_Humidity, combined_data_final$Noise_Humidity),
+     main = "Original vs. Reconstructed Noise Component (Humidity)")
+lines(combined_data_final$Date, combined_data_final$Noise_Humidity, col = "brown")
+legend("topright", inset = c(-0.44, 0), 
+       legend = c("Original Humidity", "Noise"), col = c("blue", "brown"), lty = 1)
+
+
+## Temperature decomposition
+
+# Original Temperature vs. Trend Component
+plot(combined_data_final$Date, combined_data_final$Original_Temp, type = "l", col = "blue",
+     xlab = "Date", ylab = "Temperature", 
+     ylim = range(combined_data_final$Original_Temp, combined_data_final$Trend_Temp),
+     main = "Original vs. Reconstructed Trend Component (Temperature)")
+lines(combined_data_final$Date, combined_data_final$Trend_Temp, col = "red")
+legend("topright", inset = c(-0.47, 0), 
+       legend = c("Original Temperature", "Trend"), col = c("blue", "red"), lty = 1)
+
+# Original Temperature vs. Seasonality Components
+plot(combined_data_final$Date, combined_data_final$Original_Temp, type = "l", col = "blue",
+     xlab = "Date", ylab = "Temperature", 
+     ylim = range(combined_data_final$Original_Temp, combined_data_final$Seasonality1_Temp, 
+                  combined_data_final$Seasonality2_Temp, combined_data_final$Seasonality3_Temp),
+     main = "Original vs. Reconstructed Seasonality Components (Temperature)")
+lines(combined_data_final$Date, combined_data_final$Seasonality1_Temp, col = "green")
+lines(combined_data_final$Date, combined_data_final$Seasonality2_Temp, col = "orange")
+lines(combined_data_final$Date, combined_data_final$Seasonality3_Temp, col = "purple")
+legend("topright", inset = c(-0.47, 0), 
+       legend = c("Original Temperature", "Seasonality1", "Seasonality2", "Seasonality3"), 
+       col = c("blue", "green", "orange", "purple"), lty = 1)
+
+# Original Temperature vs. Noise Component
+plot(combined_data_final$Date, combined_data_final$Original_Temp, type = "l", col = "blue",
+     xlab = "Date", ylab = "Temperature", 
+     ylim = range(combined_data_final$Original_Temp, combined_data_final$Noise_Temp),
+     main = "Original vs. Reconstructed Noise Component (Temperature)")
+lines(combined_data_final$Date, combined_data_final$Noise_Temp, col = "brown")
+legend("topright", inset = c(-0.47, 0), 
+       legend = c("Original Temperature", "Noise"), col = c("blue", "brown"), lty = 1)
+
+par(mfrow = c(1, 1))
+
+
+
+### Forecast
+
+forecast_horizon <- as.numeric(as.Date("2029-12-31") - as.Date("2020-01-01")) + 1
+forecast_dates <- seq(as.Date("2020-01-01"), as.Date("2029-12-31"), by = "day")
+
+
+## Baseline forecast
+baseline_forecast_result <- rforecast(s.climate, groups = list(Seasonality = 1:20, Noise = 21:50), len = forecast_horizon)
+
+# Calculate the forecasted values
+baseline_forecast_humidity <- baseline_forecast_result$Seasonality[,1] + baseline_forecast_result$Noise[,1]
+baseline_forecast_temp <- baseline_forecast_result$Seasonality[,2] + baseline_forecast_result$Noise[,2]
+
+# Combine forecasted values into a data frame
+baseline_forecast_data <- data.frame(
+              Date = forecast_dates,
+              Forecast_Humidity = baseline_forecast_humidity,
+              Forecast_Temp = baseline_forecast_temp
+)
+
+
+## Final forecast
+forecast_result <- rforecast(s.climate, groups = groups, len = forecast_horizon)
+
+forecast_humidity <- forecast_result$Trend[,1] + 
+                   forecast_result$Seasonality1[,1] +
+                   forecast_result$Seasonality2[,1] +
+                   forecast_result$Seasonality3[,1] +
+                   forecast_result$Noise[,1]
+
+forecast_temp <- forecast_result$Trend[,2] +  
+                   forecast_result$Seasonality1[,2] +
+                   forecast_result$Seasonality2[,2] +
+                   forecast_result$Seasonality3[,2] +
+                   forecast_result$Noise[,2]
+
+forecast_data <- data.frame(
+              Date = forecast_dates,
+              Forecast_Humidity = forecast_humidity,
+              Forecast_Temp = forecast_temp
+)
+
+
+
+### Validation
+
+# Load actual humidity data and filter for the period 2020-01-01 to 2024-05-31
+actual_humidity <- read_excel("humidity_2000.xlsx")
+actual_humidity <- actual_humidity[actual_humidity$Date >= '2020-01-01', ]
+actual_humidity <- actual_humidity[, c("Date", "Value")]
+colnames(actual_humidity) <- c("Date", "Actual_Humidity")
+actual_humidity$Actual_Humidity <- as.numeric(actual_humidity$Actual_Humidity)
+
+# Load actual temperature data and filter for the period 2020-01-01 to 2024-05-31
+actual_temp <- read_excel("meantemp_2000.xlsx")
+actual_temp <- actual_temp[actual_temp$Date >= '2020-01-01', ]
+actual_temp <- actual_temp[, c("Date", "Value")]
+colnames(actual_temp) <- c("Date", "Actual_Temp")
+actual_temp$Actual_Temp <- as.numeric(actual_temp$Actual_Temp)
+
+# Merge the actual humidity and temperature data by Date
+actual_data <- merge(actual_humidity, actual_temp, by = "Date")
+actual_data$Date <- as.Date(actual_data$Date)
+
+
+## Baseline forecast validation
+
+# Merge the forecasted data with the actual data
+baseline_comparison_data <- merge(baseline_forecast_data[baseline_forecast_data$Date <= "2024-05-31", ], actual_data, by = "Date")
+
+# Calculate the errors for Humidity and Temperature
+baseline_error_humidity <- baseline_comparison_data$Forecast_Humidity - baseline_comparison_data$Actual_Humidity
+baseline_error_temp <- baseline_comparison_data$Forecast_Temp - baseline_comparison_data$Actual_Temp
+
+baseline_mae_humidity <- mean(abs(baseline_error_humidity))
+baseline_mae_temp <- mean(abs(baseline_error_temp))
+
+baseline_mse_humidity <- mean(baseline_error_humidity^2)
+baseline_mse_temp <- mean(baseline_error_temp^2)
+
+baseline_rmse_humidity <- sqrt(baseline_mse_humidity)
+baseline_rmse_temp <- sqrt(baseline_mse_temp)
+
+# Display the error statistics
+baseline_error_statistics <- data.frame(
+  Metric = c("MAE", "MSE", "RMSE"),
+  Humidity = c(baseline_mae_humidity, baseline_mse_humidity, baseline_rmse_humidity),
+  Temperature = c(baseline_mae_temp, baseline_mse_temp, baseline_rmse_temp)
+)
+
+print(baseline_error_statistics)
+
+# Plot for Humidity
+ggplot(baseline_comparison_data, aes(x = Date)) +
+  geom_line(aes(y = Actual_Humidity, color = "Actual Humidity"), linewidth = 1) +
+  geom_line(aes(y = Forecast_Humidity, color = "Forecasted Humidity"), linewidth = 1, linetype = "dashed") +
+  labs(title = "Comparison of Actual vs Forecasted Humidity (Baseline)",
+       x = "Date", y = "Humidity (%)") +
+  scale_color_manual(name = "Legend", values = c("Actual Humidity" = "blue", "Forecasted Humidity" = "red")) +
+  theme_minimal()
+
+# Plot for Temperature
+ggplot(baseline_comparison_data, aes(x = Date)) +
+  geom_line(aes(y = Actual_Temp, color = "Actual Temperature"), linewidth = 1) +
+  geom_line(aes(y = Forecast_Temp, color = "Forecasted Temperature"), linewidth = 1, linetype = "dashed") +
+  labs(title = "Comparison of Actual vs Forecasted Temperature (Baseline)",
+       x = "Date", y = "Temperature (°C)") +
+  scale_color_manual(name = "Legend", values = c("Actual Temperature" = "blue", "Forecasted Temperature" = "red")) +
+  theme_minimal()
+
+
+## Final forecast
+
+comparison_data <- merge(forecast_data[forecast_data$Date <= "2024-05-31", ], actual_data, by = "Date")
+
+error_humidity <- comparison_data$Forecast_Humidity - comparison_data$Actual_Humidity
+error_temp <- comparison_data$Forecast_Temp - comparison_data$Actual_Temp
+
+mae_humidity <- mean(abs(error_humidity))
+mae_temp <- mean(abs(error_temp))
+
+mse_humidity <- mean(error_humidity^2)
+mse_temp <- mean(error_temp^2)
+
+rmse_humidity <- sqrt(mse_humidity)
+rmse_temp <- sqrt(mse_temp)
+
+error_statistics <- data.frame(
+  Metric = c("MAE", "MSE", "RMSE"),
+  Humidity = c(mae_humidity, mse_humidity, rmse_humidity),
+  Temperature = c(mae_temp, mse_temp, rmse_temp)
+)
+
+print(error_statistics)
+
+ggplot(comparison_data, aes(x = Date)) +
+  geom_line(aes(y = Actual_Humidity, color = "Actual Humidity"), linewidth = 1) +
+  geom_line(aes(y = Forecast_Humidity, color = "Forecasted Humidity"), linewidth = 1, linetype = "dashed") +
+  labs(title = "Comparison of Actual vs Forecasted Humidity (Final)",
+       x = "Date", y = "Humidity (%)") +
+  scale_color_manual(name = "Legend", values = c("Actual Humidity" = "blue", "Forecasted Humidity" = "red")) +
+  theme_minimal()
+
+ggplot(comparison_data, aes(x = Date)) +
+  geom_line(aes(y = Actual_Temp, color = "Actual Temperature"), linewidth = 1) +
+  geom_line(aes(y = Forecast_Temp, color = "Forecasted Temperature"), linewidth = 1, linetype = "dashed") +
+  labs(title = "Comparison of Actual vs Forecasted Temperature (Final)",
+       x = "Date", y = "Temperature (°C)") +
+  scale_color_manual(name = "Legend", values = c("Actual Temperature" = "blue", "Forecasted Temperature" = "red")) +
+  theme_minimal()
+
+
+## Overall comparison
+
+historical_data <- merge(humidity, temp, by = "Date")
+colnames(historical_data) <- c("Date", "Actual_Humidity", "Actual_Temp")
+historical_data$Baseline_Humidity <- NA
+historical_data$Baseline_Temp <- NA
+historical_data$Final_Humidity <- NA
+historical_data$Final_Temp <- NA
+
+combined_forecast_data <- merge(baseline_forecast_data, forecast_data, by = "Date")
+colnames(combined_forecast_data) <- c("Date", "Baseline_Humidity", "Baseline_Temp", "Final_Humidity", "Final_Temp")
+combined_forecast_data <- merge(combined_forecast_data, actual_data, by = "Date", all.x = TRUE, all.y = TRUE)
+
+combined_forecast_data <- rbind(historical_data, combined_forecast_data)
+
+
+## Yearly averages
+
+# Baseline forecast annual mean
+baseline_data <- combined_forecast_data[,c("Date", "Baseline_Humidity", "Baseline_Temp")]
+baseline_data <- baseline_data[baseline_data$Date >= '2024-06-01',]
+colnames(baseline_data) <- c("Date", "Humidity", "Temp")
+
+validation_data <- actual_data[,c("Date", "Actual_Humidity", "Actual_Temp")]
+colnames(validation_data) <- c("Date", "Humidity", "Temp")
+
+train_data <- climate_df[,c("Date", "Humidity", "Temperature")]
+colnames(train_data) <- c("Date", "Humidity", "Temp")
+
+baseline_data <- rbind(train_data, validation_data, baseline_data)
+colnames(baseline_data) <- c("Date", "Baseline_Humidity", "Baseline_Temp")
+
+baseline_data$Year <- format(as.Date(baseline_data$Date), "%Y")
+baseline_avg <- baseline_data %>%
+  group_by(Year) %>%
+  summarize(Humidity = mean(Baseline_Humidity), Temperature = mean(Baseline_Temp))
+  
+ggplot(baseline_avg, aes(x = as.numeric(Year))) +
+  geom_line(aes(y = Humidity, color = "Humidity"), linewidth = 1) +
+  geom_line(aes(y = Temperature, color = "Temperature"), linewidth = 1) +
+  labs(title = "Annual Mean of Humidity and Temperature (Baseline)",
+       x = "Year",
+       y = "Value") +
+  scale_color_manual(name = "Parameter",
+                     values = c("Humidity" = "blue", "Temperature" = "red")) +
+  theme_minimal()
+  
+  
+# Final forecast annual mean
+final_data <- combined_forecast_data[,c("Date", "Final_Humidity", "Final_Temp")]
+final_data <- final_data[final_data$Date >= '2024-06-01',]
+colnames(final_data) <- c("Date", "Humidity", "Temp")
+
+final_data <- rbind(train_data, validation_data, final_data)
+colnames(final_data) <- c("Date", "Final_Humidity", "Final_Temp")
+
+final_data$Year <- format(as.Date(final_data$Date), "%Y")
+final_avg <- final_data %>%
+  group_by(Year) %>%
+  summarize(Humidity = mean(Final_Humidity), Temperature = mean(Final_Temp))
+  
+ggplot(final_avg, aes(x = as.numeric(Year))) +
+  geom_line(aes(y = Humidity, color = "Humidity"), linewidth = 1) +
+  geom_line(aes(y = Temperature, color = "Temperature"), linewidth = 1) +
+  labs(title = "Annual Mean of Humidity and Temperature (Final)",
+       x = "Year",
+       y = "Value") +
+  scale_color_manual(name = "Parameter",
+                     values = c("Humidity" = "blue", "Temperature" = "red")) +
+  theme_minimal()
+  
+
+# Combined overall data
+combined_overall_data <- merge(baseline_data, final_data)
+combined_overall_avg <- combined_overall_data %>%
+  group_by(Year) %>%
+  summarize(Baseline_humdity = mean(Baseline_Humidity), Baseline_Temperature = mean(Baseline_Temp),
+            Final_Humidity = mean(Final_Humidity), Final_Temperature = mean(Final_Temp))
